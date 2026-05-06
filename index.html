@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="lo">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ລະບົບອອກໜັງສືແຈ້ງເຊີນ (ຮັກສາຕົ້ນສະບັບ)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- PDF.js for rendering the uploaded PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <!-- html2canvas and jsPDF for generating the final output -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Lao:wght@400;600;700&family=Noto+Serif+Lao:wght@400;600;700&display=swap');
+        
+        body {
+            font-family: 'Noto Sans Lao', sans-serif;
+            background-color: #e5e7eb;
+        }
+        
+        /* Fixed A4 size container (794px x 1123px at 96 DPI) */
+        .a4-container {
+            width: 794px;
+            height: 1123px;
+            background: white;
+            margin: 20px auto;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.15);
+            position: relative;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+
+        #pdf-canvas {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+
+        /* Draggable text overlay wrapper */
+        #draggable-wrapper {
+            position: absolute;
+            z-index: 10;
+            cursor: move;
+            user-select: none;
+            padding: 4px;
+        }
+
+        /* The actual content that rotates and resizes */
+        #draggable-content {
+            padding: 4px 8px;
+            min-width: 250px;
+            min-height: 50px;
+            resize: both;
+            overflow: hidden;
+            transform-origin: center center;
+        }
+
+        .edit-mode {
+            border: 2px dashed #3b82f6;
+            background-color: rgba(59, 130, 246, 0.1);
+        }
+
+        .print-mode {
+            border: none !important;
+            background-color: transparent !important;
+            resize: none !important;
+        }
+
+        /* Custom scrollbars */
+        ::-webkit-scrollbar { width: 8px; height: 8px;}
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px;}
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
+</head>
+<body class="flex flex-col md:flex-row h-screen overflow-hidden">
+
+    <!-- Sidebar: Controls & List -->
+    <div class="w-full md:w-96 lg:w-[420px] bg-white shadow-xl flex flex-col h-full z-20 no-print flex-shrink-0">
+        
+        <!-- Compact Header -->
+        <div class="px-4 py-2 bg-blue-800 text-white shadow-md flex justify-between items-center shrink-0">
+            <h1 class="text-lg font-bold">ອອກໜັງສືແຈ້ງເຊີນ</h1>
+            <span class="text-xs text-blue-200">ຮັກສາ PDF ຕົ້ນສະບັບ</span>
+        </div>
+
+        <!-- Compact Export Buttons -->
+        <div class="p-2 bg-blue-50 border-b border-blue-100 flex gap-2 shrink-0">
+            <button onclick="exportCurrentPDF()" class="flex-1 flex justify-center items-center bg-blue-600 hover:bg-blue-700 text-white py-1.5 px-2 rounded shadow transition text-[11px] font-bold">
+                Export ຜູ້ທີ່ເລືອກ
+            </button>
+            <button onclick="exportAllPDF()" class="flex-1 flex justify-center items-center bg-green-600 hover:bg-green-700 text-white py-1.5 px-2 rounded shadow transition text-[11px] font-bold">
+                Export ລວມທຸກຄົນ
+            </button>
+        </div>
+
+        <!-- Compact Section 1 -->
+        <div class="p-3 border-b border-gray-200 bg-gray-50 shrink-0">
+            <h2 class="font-semibold text-gray-700 text-[13px] mb-1">1. ອັບໂຫຼດ PDF ຕົ້ນສະບັບ:</h2>
+            <input type="file" id="pdf-upload" accept="application/pdf" class="block w-full text-xs text-gray-500
+              file:mr-2 file:py-1 file:px-2
+              file:rounded file:border-0
+              file:text-xs file:font-semibold
+              file:bg-blue-50 file:text-blue-700
+              hover:file:bg-blue-100 cursor-pointer
+            "/>
+        </div>
+
+        <!-- Compact Section 2 -->
+        <div class="p-3 border-b border-gray-200 shrink-0">
+            <h2 class="font-semibold text-gray-700 text-[13px] mb-1">2. ປັບແຕ່ງ:</h2>
+            
+            <div class="flex items-center gap-2 mb-1.5">
+                <label class="text-[11px] text-gray-600 w-12">ຟ້ອນ:</label>
+                <select id="fontSelector" class="w-full text-[11px] p-0.5 border rounded focus:outline-none">
+                    <option value="'Noto Sans Lao', sans-serif">Noto Sans Lao</option>
+                    <option value="'Phetsarath OT', sans-serif">Phetsarath OT</option>
+                    <option value="'Saysettha OT', sans-serif">Saysettha OT</option>
+                </select>
+            </div>
+
+            <div class="flex items-center gap-2 mb-1.5">
+                <label class="text-[11px] text-gray-600 w-12">ຂະໜາດ:</label>
+                <input type="range" id="fontSizeSlider" min="12" max="30" value="16" class="w-full h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                <span id="fontSizeDisplay" class="text-[11px] font-bold w-6 text-right">16</span>
+            </div>
+
+            <div class="flex items-center gap-2 mb-1.5">
+                <label class="text-[11px] text-gray-600 w-12">ໄລຍະແຖວ:</label>
+                <input type="range" id="lineHeightSlider" min="1" max="3" step="0.1" value="1.2" class="w-full h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                <span id="lineHeightDisplay" class="text-[11px] font-bold w-6 text-right">1.2</span>
+            </div>
+
+            <div class="flex items-center gap-2 mb-1">
+                <label class="text-[11px] text-gray-600 w-12">ໝູນ:</label>
+                <button onclick="adjustRotate(-1)" class="w-5 h-5 flex items-center justify-center bg-gray-200 hover:bg-gray-300 rounded text-gray-700 font-bold shadow-sm text-xs">-</button>
+                <input type="range" id="rotateSlider" min="-180" max="180" value="0" class="w-full h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                <button onclick="adjustRotate(1)" class="w-5 h-5 flex items-center justify-center bg-gray-200 hover:bg-gray-300 rounded text-gray-700 font-bold shadow-sm text-xs">+</button>
+                <span id="rotateDisplay" class="text-[11px] font-bold w-8 text-right">0°</span>
+            </div>
+
+            <p class="text-[10px] text-gray-400 mt-1 leading-none">*ຄລິກ-ລາກເພື່ອຍ້າຍ, ລາກແຈຂວາລຸ່ມເພື່ອຢືດກ່ອງ</p>
+        </div>
+
+        <!-- Expanded Section 3 -->
+        <div class="p-3 flex-grow flex flex-col overflow-hidden bg-white">
+            <div class="flex justify-between items-center mb-2">
+                <h2 class="font-semibold text-gray-700 text-[13px]">3. ເລືອກລາຍຊື່:</h2>
+                <button onclick="clearAllParticipants()" class="text-[10px] text-red-500 hover:text-red-700 hover:underline px-2 py-0.5 rounded transition bg-red-50 hover:bg-red-100" title="ລຶບລາຍຊື່ທັງໝົດ">ລຶບທັງໝົດ</button>
+            </div>
+            <div id="participant-list" class="space-y-1.5 overflow-y-auto pr-1 pb-1 flex-grow h-0">
+                <!-- List will be populated by JS -->
+            </div>
+            
+            <!-- Compact Add New Participant -->
+            <div class="mt-2 pt-2 border-t border-gray-100 shrink-0">
+                <div class="flex gap-1.5 items-center">
+                    <input type="text" id="newName" placeholder="ເພີ່ມຊື່..." class="w-full text-[12px] p-1.5 border rounded focus:outline-none focus:border-blue-500">
+                    <button id="actionBtn" onclick="addParticipant()" class="shrink-0 bg-blue-100 hover:bg-blue-200 text-blue-700 text-[11px] font-bold px-3 py-1.5 rounded transition">
+                        ເພີ່ມ
+                    </button>
+                    <button id="cancelBtn" onclick="resetActionBtn()" class="hidden shrink-0 text-gray-500 hover:text-gray-700 text-[11px] underline px-1">
+                        ຍົກເລີກ
+                    </button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Main Content: A4 Preview Area -->
+    <div class="w-full flex-grow overflow-auto bg-gray-300 flex justify-center items-start p-8 relative" id="workspace">
+        
+        <!-- Loading Overlay -->
+        <div id="loading-overlay" class="absolute inset-0 bg-gray-900 bg-opacity-50 z-50 flex flex-col justify-center items-center hidden">
+            <div class="animate-spin rounded-full h-14 w-14 border-4 border-white border-t-blue-500 mb-4"></div>
+            <p class="text-white font-bold text-lg" id="loading-text">ກຳລັງປະມວນຜົນ...</p>
+        </div>
+
+        <!-- A4 Container -->
+        <div id="letter-template" class="a4-container text-[16px]">
+            <!-- Empty state placeholder -->
+            <div id="placeholder-text" class="absolute inset-0 flex flex-col items-center justify-center text-gray-400 z-0">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-20 w-20 mb-4 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <p class="text-xl font-semibold">ກະລຸນາອັບໂຫຼດໄຟລ໌ PDF ຕົ້ນສະບັບຢູ່ເມນູດ້ານຊ້າຍ</p>
+            </div>
+
+            <canvas id="pdf-canvas"></canvas>
+            
+            <!-- Dynamic Text Overlay (Hidden until PDF is loaded) -->
+            <div id="draggable-wrapper" class="hidden" style="top: 400px; left: 150px;">
+                <div id="draggable-content" class="edit-mode" style="line-height: 1.2;">
+                    <div id="preview-name" class="font-bold text-black">ທ່ານ ກອງໄຊ ລໍວັນເຫືອງ</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Alert/Confirm Modal -->
+    <div id="custom-modal" class="fixed inset-0 bg-black bg-opacity-50 z-[100] hidden flex justify-center items-center backdrop-blur-sm transition-opacity">
+        <div class="bg-white rounded-lg shadow-2xl p-6 w-80 max-w-[90%] transform scale-100">
+            <h3 class="text-lg font-bold text-gray-800 mb-2 border-b pb-2">ແຈ້ງເຕືອນ</h3>
+            <p id="modal-message" class="text-sm text-gray-600 mb-6 mt-3">...</p>
+            <div class="flex justify-end gap-3" id="modal-buttons">
+                <!-- Buttons will be injected here -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Setup PDF.js worker
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+
+        // Data provided by user - Cleared as requested
+        const participants = [];
+
+        let currentSelected = null;
+        let pdfLoaded = false;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            renderList();
+            setupDraggable();
+            setupFontControls();
+            
+            // Set initial preview text since there are no participants
+            document.getElementById('preview-name').innerText = 'ຍັງບໍ່ມີລາຍຊື່';
+        });
+
+        // --- Custom Modal System ---
+        function showModal(message, type = 'alert', onConfirm = null) {
+            const modal = document.getElementById('custom-modal');
+            const msgEl = document.getElementById('modal-message');
+            const btnsEl = document.getElementById('modal-buttons');
+            
+            msgEl.innerText = message;
+            btnsEl.innerHTML = '';
+            
+            if (type === 'confirm') {
+                const cancelBtn = document.createElement('button');
+                cancelBtn.className = 'px-4 py-1.5 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 text-sm font-semibold transition';
+                cancelBtn.innerText = 'ຍົກເລີກ';
+                cancelBtn.onclick = () => { modal.classList.add('hidden'); };
+                
+                const confirmBtn = document.createElement('button');
+                confirmBtn.className = 'px-4 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-semibold transition';
+                confirmBtn.innerText = 'ຕົກລົງ';
+                confirmBtn.onclick = () => { 
+                    modal.classList.add('hidden');
+                    if(onConfirm) onConfirm();
+                };
+                
+                btnsEl.appendChild(cancelBtn);
+                btnsEl.appendChild(confirmBtn);
+            } else {
+                const okBtn = document.createElement('button');
+                okBtn.className = 'px-4 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-semibold transition';
+                okBtn.innerText = 'ຕົກລົງ';
+                okBtn.onclick = () => { modal.classList.add('hidden'); };
+                btnsEl.appendChild(okBtn);
+            }
+            
+            modal.classList.remove('hidden');
+        }
+
+        // 1. PDF Upload Logic
+        const fileInput = document.getElementById('pdf-upload');
+        fileInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if(file.type !== 'application/pdf') {
+                showModal('ກະລຸນາເລືອກໄຟລ໌ PDF ເທົ່ານັ້ນ');
+                return;
+            }
+            
+            showLoader("ກຳລັງໂຫຼດ PDF...");
+            
+            const fileReader = new FileReader();
+            fileReader.onload = function() {
+                const typedarray = new Uint8Array(this.result);
+                
+                pdfjsLib.getDocument(typedarray).promise.then(pdf => {
+                    // Load the first page
+                    pdf.getPage(1).then(page => {
+                        const canvas = document.getElementById('pdf-canvas');
+                        const context = canvas.getContext('2d');
+                        
+                        // Set standard A4 scale
+                        const viewport = page.getViewport({ scale: 2 }); // Scale 2 for high quality
+                        
+                        canvas.width = viewport.width;
+                        canvas.height = viewport.height;
+                        
+                        const renderContext = {
+                            canvasContext: context,
+                            viewport: viewport
+                        };
+                        
+                        page.render(renderContext).promise.then(() => {
+                            document.getElementById('placeholder-text').style.display = 'none';
+                            document.getElementById('draggable-wrapper').classList.remove('hidden');
+                            pdfLoaded = true;
+                            hideLoader();
+                        });
+                    });
+                }).catch(err => {
+                    showModal("ເກີດຂໍ້ຜິດພາດໃນການອ່ານໄຟລ໌ PDF");
+                    hideLoader();
+                });
+            };
+            fileReader.readAsArrayBuffer(file);
+        });
+
+        // 2. Render List & Selection
+        function renderList() {
+            const listContainer = document.getElementById('participant-list');
+            listContainer.innerHTML = '';
+
+            if (participants.length === 0) {
+                 listContainer.innerHTML = '<p class="text-[11px] text-gray-400 italic text-center mt-4">ຍັງບໍ່ມີລາຍຊື່ຜູ້ເຂົ້າຮ່ວມ. ກະລຸນາເພີ່ມລາຍຊື່ຢູ່ຊ່ອງດ້ານລຸ່ມ.</p>';
+                 return;
+            }
+
+            participants.forEach(p => {
+                const btn = document.createElement('div'); // ປ່ຽນຈາກ button ເປັນ div
+                const isSelected = currentSelected && currentSelected.id === p.id;
+                // Made the list items slightly more compact (p-2 instead of p-3)
+                btn.className = `w-full text-left p-2 rounded border mb-1 cursor-pointer transition ${isSelected ? 'bg-blue-100 border-blue-400 shadow-sm' : 'bg-white border-gray-200 hover:bg-gray-50'}`;
+                btn.onclick = () => {
+                    currentSelected = p;
+                    document.getElementById('preview-name').innerText = p.name;
+                    renderList();
+                };
+                btn.innerHTML = `
+                    <div class="font-semibold text-gray-800 text-[13px] flex justify-between items-center">
+                        <span class="truncate pr-2">${p.name}</span>
+                        <div class="shrink-0 flex gap-1 z-10 relative">
+                            <button onclick="editParticipant(${p.id}, event)" class="bg-yellow-100 text-yellow-700 hover:bg-yellow-200 hover:text-yellow-800 text-[10px] px-2 py-0.5 rounded transition" title="ແກ້ໄຂຊື່">ແກ້ໄຂ</button>
+                            <button onclick="removeParticipant(${p.id}, event)" class="bg-red-100 text-red-600 hover:bg-red-200 hover:text-red-800 text-[10px] px-2 py-0.5 rounded transition" title="ລຶບລາຍຊື່">ລຶບ</button>
+                        </div>
+                    </div>
+                `;
+                listContainer.appendChild(btn);
+            });
+        }
+
+        // Add Participant Logic
+        function addParticipant() {
+            const nameInput = document.getElementById('newName');
+            const name = nameInput.value.trim();
+            
+            if(!name) return; // ປ້ອງກັນການເພີ່ມຊື່ວ່າງເປົ່າ
+            
+            const newId = participants.length > 0 ? Math.max(...participants.map(p=>p.id)) + 1 : 1;
+            const newParticipant = { id: newId, name: name };
+            participants.push(newParticipant);
+            
+            nameInput.value = '';
+            
+            // If it's the first participant, auto select it
+            if (participants.length === 1) {
+                currentSelected = newParticipant;
+                document.getElementById('preview-name').innerText = newParticipant.name;
+            }
+            
+            renderList();
+            
+            // Auto scroll to the bottom if list is long
+            const listContainer = document.getElementById('participant-list');
+            listContainer.scrollTop = listContainer.scrollHeight;
+        }
+
+        // Edit Participant Logic
+        function editParticipant(id, event) {
+            event.stopPropagation(); // ປ້ອງກັນບໍ່ໃຫ້ໄປກະທົບການເລືອກແຖວ
+            const participant = participants.find(p => p.id === id);
+            if (!participant) return;
+            
+            const nameInput = document.getElementById('newName');
+            nameInput.value = participant.name;
+            nameInput.focus();
+            
+            // ປ່ຽນປຸ່ມ ເພີ່ມ ເປັນ ບັນທຶກ
+            const actionBtn = document.getElementById('actionBtn');
+            actionBtn.innerText = 'ບັນທຶກ';
+            actionBtn.classList.remove('bg-blue-100', 'hover:bg-blue-200', 'text-blue-700');
+            actionBtn.classList.add('bg-yellow-100', 'hover:bg-yellow-200', 'text-yellow-700');
+            actionBtn.onclick = function() { saveEdit(id); };
+
+            // ສະແດງປຸ່ມຍົກເລີກ
+            document.getElementById('cancelBtn').classList.remove('hidden');
+        }
+
+        function saveEdit(id) {
+            const nameInput = document.getElementById('newName');
+            const name = nameInput.value.trim();
+            
+            if (!name) return;
+            
+            const participant = participants.find(p => p.id === id);
+            if (participant) {
+                participant.name = name;
+                // ອັບເດດໜ້າພຣີວິວ ຖ້າຫາກກຳລັງເບິ່ງຊື່ນີ້ຢູ່
+                if (currentSelected && currentSelected.id === id) {
+                    document.getElementById('preview-name').innerText = name;
+                }
+            }
+            
+            resetActionBtn();
+            renderList();
+        }
+
+        function resetActionBtn() {
+            const nameInput = document.getElementById('newName');
+            nameInput.value = '';
+            
+            // ປ່ຽນປຸ່ມ ບັນທຶກ ກັບຄືນເປັນ ເພີ່ມ
+            const actionBtn = document.getElementById('actionBtn');
+            actionBtn.innerText = 'ເພີ່ມ';
+            actionBtn.classList.remove('bg-yellow-100', 'hover:bg-yellow-200', 'text-yellow-700');
+            actionBtn.classList.add('bg-blue-100', 'hover:bg-blue-200', 'text-blue-700');
+            actionBtn.onclick = addParticipant;
+
+            // ເຊື່ອງປຸ່ມຍົກເລີກ
+            document.getElementById('cancelBtn').classList.add('hidden');
+        }
+
+        // Clear All Participants Logic
+        function clearAllParticipants() {
+            if (participants.length === 0) return;
+            showModal('ຕ້ອງການລຶບລາຍຊື່ທັງໝົດແທ້ບໍ່?', 'confirm', () => {
+                participants.length = 0; // Empty the array
+                currentSelected = null;
+                document.getElementById('preview-name').innerText = 'ຍັງບໍ່ມີລາຍຊື່';
+                renderList();
+            });
+        }
+
+        // Remove Participant Logic
+        function removeParticipant(id, event) {
+            event.stopPropagation(); // Prevent row click
+            const index = participants.findIndex(p => p.id === id);
+            if(index > -1) {
+                showModal('ຕ້ອງການລຶບລາຍຊື່ນີ້ແທ້ບໍ່?', 'confirm', () => {
+                    participants.splice(index, 1);
+                    if(currentSelected && currentSelected.id === id) {
+                        currentSelected = participants[0] || null;
+                        if(currentSelected) {
+                            document.getElementById('preview-name').innerText = currentSelected.name;
+                        } else {
+                            document.getElementById('preview-name').innerText = 'ຍັງບໍ່ມີລາຍຊື່';
+                        }
+                    }
+                    renderList();
+                });
+            }
+        }
+
+        // 3. Draggable Logic
+        function setupDraggable() {
+            const dragItem = document.getElementById("draggable-wrapper");
+            const container = document.getElementById("letter-template");
+            let active = false;
+            let currentX, currentY, initialX, initialY;
+            let xOffset = 150, yOffset = 400; // Default starting position
+
+            function dragStart(e) {
+                if (e.type === "touchstart") {
+                    initialX = e.touches[0].clientX - xOffset;
+                    initialY = e.touches[0].clientY - yOffset;
+                } else {
+                    initialX = e.clientX - xOffset;
+                    initialY = e.clientY - yOffset;
+                }
+                if (e.target === dragItem || dragItem.contains(e.target)) {
+                    active = true;
+                }
+            }
+
+            function dragEnd() {
+                initialX = currentX;
+                initialY = currentY;
+                active = false;
+            }
+
+            function drag(e) {
+                if (active) {
+                    e.preventDefault();
+                    if (e.type === "touchmove") {
+                        currentX = e.touches[0].clientX - initialX;
+                        currentY = e.touches[0].clientY - initialY;
+                    } else {
+                        currentX = e.clientX - initialX;
+                        currentY = e.clientY - initialY;
+                    }
+
+                    // Constrain to container
+                    xOffset = currentX;
+                    yOffset = currentY;
+                    
+                    setTranslate(currentX, currentY, dragItem);
+                }
+            }
+
+            function setTranslate(xPos, yPos, el) {
+                el.style.left = xPos + "px";
+                el.style.top = yPos + "px";
+            }
+
+            container.addEventListener("touchstart", dragStart, false);
+            container.addEventListener("touchend", dragEnd, false);
+            container.addEventListener("touchmove", drag, false);
+
+            container.addEventListener("mousedown", dragStart, false);
+            container.addEventListener("mouseup", dragEnd, false);
+            container.addEventListener("mousemove", drag, false);
+        }
+
+        // 4. Font Size & Styling Controls
+        function setupFontControls() {
+            const sizeSlider = document.getElementById('fontSizeSlider');
+            const sizeDisplay = document.getElementById('fontSizeDisplay');
+            const rotateSlider = document.getElementById('rotateSlider');
+            const rotateDisplay = document.getElementById('rotateDisplay');
+            const fontSelector = document.getElementById('fontSelector');
+            const lineHeightSlider = document.getElementById('lineHeightSlider');
+            const lineHeightDisplay = document.getElementById('lineHeightDisplay');
+            const dragContent = document.getElementById('draggable-content');
+            
+            sizeSlider.addEventListener('input', (e) => {
+                const size = e.target.value;
+                sizeDisplay.innerText = size;
+                dragContent.style.fontSize = size + 'px';
+            });
+
+            rotateSlider.addEventListener('input', (e) => {
+                const deg = e.target.value;
+                rotateDisplay.innerText = deg + '°';
+                dragContent.style.transform = `rotate(${deg}deg)`;
+            });
+
+            window.adjustRotate = function(val) {
+                let currentVal = parseInt(rotateSlider.value);
+                let newVal = currentVal + val;
+                if(newVal < -180) newVal = -180;
+                if(newVal > 180) newVal = 180;
+                rotateSlider.value = newVal;
+                rotateDisplay.innerText = newVal + '°';
+                dragContent.style.transform = `rotate(${newVal}deg)`;
+            };
+
+            fontSelector.addEventListener('change', (e) => {
+                dragContent.style.fontFamily = e.target.value;
+            });
+
+            lineHeightSlider.addEventListener('input', (e) => {
+                const val = e.target.value;
+                lineHeightDisplay.innerText = val;
+                dragContent.style.lineHeight = val;
+            });
+        }
+
+        // Helpers
+        function showLoader(text) {
+            document.getElementById('loading-text').innerText = text;
+            document.getElementById('loading-overlay').classList.remove('hidden');
+        }
+        function hideLoader() { document.getElementById('loading-overlay').classList.add('hidden'); }
+        
+        function prepareForPrint() {
+            const box = document.getElementById('draggable-content');
+            box.classList.remove('edit-mode');
+            box.classList.add('print-mode');
+        }
+        
+        function restoreAfterPrint() {
+            const box = document.getElementById('draggable-content');
+            box.classList.add('edit-mode');
+            box.classList.remove('print-mode');
+        }
+
+        // 5. Export Logic (jsPDF + html2canvas)
+        async function exportCurrentPDF() {
+            if(!pdfLoaded) { showModal("ກະລຸນາອັບໂຫຼດໄຟລ໌ PDF ຕົ້ນສະບັບກ່ອນ"); return; }
+            if(!currentSelected) { showModal("ບໍ່ມີລາຍຊື່ໃຫ້ Export"); return; }
+            showLoader(`ກຳລັງສ້າງ PDF:\n${currentSelected.name}`);
+            prepareForPrint();
+            
+            // Allow DOM to update style
+            await new Promise(r => setTimeout(r, 100));
+
+            const container = document.getElementById('letter-template');
+            const canvas = await html2canvas(container, { scale: 2, useCORS: true });
+            const imgData = canvas.toDataURL('image/jpeg', 0.98);
+
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF('p', 'px', [794, 1123]);
+            doc.addImage(imgData, 'JPEG', 0, 0, 794, 1123);
+            
+            doc.save(`ແຈ້ງເຊີນ_${currentSelected.name.replace(/ /g, '_')}.pdf`);
+            
+            restoreAfterPrint();
+            hideLoader();
+        }
+
+        async function exportAllPDF() {
+            if(!pdfLoaded) { showModal("ກະລຸນາອັບໂຫຼດໄຟລ໌ PDF ຕົ້ນສະບັບກ່ອນ"); return; }
+            if(participants.length === 0) { showModal("ບໍ່ມີລາຍຊື່ໃຫ້ Export"); return; }
+            
+            showLoader('ກຳລັງສ້າງ PDF ລວມທຸກຄົນ...');
+            prepareForPrint();
+
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF('p', 'px', [794, 1123]);
+            const container = document.getElementById('letter-template');
+
+            for (let i = 0; i < participants.length; i++) {
+                const p = participants[i];
+                // Update text
+                document.getElementById('preview-name').innerText = p.name;
+
+                // Wait for DOM to render the new text
+                await new Promise(r => setTimeout(r, 150));
+
+                const canvas = await html2canvas(container, { scale: 2, useCORS: true });
+                const imgData = canvas.toDataURL('image/jpeg', 0.98);
+
+                if (i > 0) doc.addPage();
+                doc.addImage(imgData, 'JPEG', 0, 0, 794, 1123);
+            }
+
+            // Restore state to current selection
+            document.getElementById('preview-name').innerText = currentSelected.name;
+            
+            restoreAfterPrint();
+            
+            doc.save(`ແຈ້ງເຊີນ_ທັງໝົດ_${participants.length}_ທ່ານ.pdf`);
+            hideLoader();
+        }
+    </script>
+</body>
+</html>
