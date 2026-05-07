@@ -28,47 +28,59 @@
             margin: 20px auto;
             box-shadow: 0 10px 20px rgba(0, 0, 0, 0.15);
             position: relative;
-            overflow: hidden;
+            overflow: hidden; /* Acts as a crop boundary */
             flex-shrink: 0;
+        }
+
+        /* Container for the PDF to apply Zoom/Pan/Rotate */
+        #pdf-wrapper {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            transform-origin: center center;
+            z-index: 1;
+            transition: transform 0.1s ease-out;
         }
 
         #pdf-canvas {
             width: 100%;
             height: 100%;
-            position: absolute;
-            top: 0;
-            left: 0;
-            z-index: 1;
         }
 
-        /* Draggable text overlay wrapper */
-        #draggable-wrapper {
+        /* Independent draggable text items */
+        .draggable-item {
             position: absolute;
             z-index: 10;
             cursor: move;
             user-select: none;
-            padding: 4px;
-        }
-
-        /* The actual content that rotates and resizes */
-        #draggable-content {
             padding: 4px 8px;
-            min-width: 250px;
-            min-height: 50px;
+            min-width: 150px;
+            min-height: 30px;
             resize: both;
             overflow: hidden;
             transform-origin: center center;
+            border: 2px dashed transparent;
         }
 
-        .edit-mode {
-            border: 2px dashed #3b82f6;
-            background-color: rgba(59, 130, 246, 0.1);
+        .draggable-item.edit-mode {
+            border-color: #94a3b8;
+            background-color: rgba(241, 245, 249, 0.4);
+        }
+
+        .draggable-item.edit-mode.active-box {
+            border-color: #2563eb;
+            background-color: rgba(59, 130, 246, 0.15);
+            z-index: 20;
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
         }
 
         .print-mode {
             border: none !important;
             background-color: transparent !important;
             resize: none !important;
+            box-shadow: none !important;
         }
 
         /* Custom scrollbars */
@@ -99,25 +111,40 @@
             </button>
         </div>
 
-        <!-- Compact Section 1 -->
+        <!-- Section 1: PDF Upload & Crop/Rotate -->
         <div class="p-3 border-b border-gray-200 bg-gray-50 shrink-0">
-            <h2 class="font-semibold text-gray-700 text-[13px] mb-1">1. ອັບໂຫຼດ PDF ຕົ້ນສະບັບ:</h2>
+            <h2 class="font-semibold text-gray-700 text-[13px] mb-1">1. PDF ຕົ້ນສະບັບ:</h2>
             <input type="file" id="pdf-upload" accept="application/pdf" class="block w-full text-xs text-gray-500
               file:mr-2 file:py-1 file:px-2
               file:rounded file:border-0
               file:text-xs file:font-semibold
               file:bg-blue-50 file:text-blue-700
-              hover:file:bg-blue-100 cursor-pointer
+              hover:file:bg-blue-100 cursor-pointer mb-2
             "/>
+            
+            <!-- Hidden by default until PDF loads -->
+            <div id="pdf-controls" class="hidden mt-2 pt-2 border-t border-gray-200 bg-gray-100 p-2 rounded">
+                <p class="text-[10px] font-bold text-gray-600 mb-1 text-center">ປັບແຕ່ງໜ້າ PDF (Rotate)</p>
+                <div class="flex items-center gap-1">
+                    <label class="text-[10px] w-8">ໝູນ:</label>
+                    <input type="range" id="pdfRotate" min="-180" max="180" step="1" value="0" class="w-full h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer">
+                </div>
+                <div class="flex justify-center mt-2">
+                    <button onclick="resetPdfTransform()" class="text-[10px] bg-white border border-gray-300 px-2 py-0.5 rounded hover:bg-gray-50">ຣີເຊັດ PDF</button>
+                </div>
+            </div>
         </div>
 
-        <!-- Compact Section 2 -->
-        <div class="p-3 border-b border-gray-200 shrink-0">
-            <h2 class="font-semibold text-gray-700 text-[13px] mb-1">2. ປັບແຕ່ງ:</h2>
+        <!-- Section 2: Text Box Customize -->
+        <div class="p-3 border-b border-gray-200 shrink-0 relative">
+            <div class="flex justify-between items-center mb-1.5">
+                <h2 class="font-semibold text-gray-700 text-[13px]">2. ປັບແຕ່ງຂໍ້ຄວາມ:</h2>
+                <span id="activeBoxLabel" class="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-bold shadow-sm border border-blue-200">ກຳລັງເລືອກ: ຊື່</span>
+            </div>
             
             <div class="flex items-center gap-2 mb-1.5">
                 <label class="text-[11px] text-gray-600 w-12">ຟ້ອນ:</label>
-                <select id="fontSelector" class="w-full text-[11px] p-0.5 border rounded focus:outline-none">
+                <select id="fontSelector" class="w-full text-[11px] p-0.5 border rounded focus:outline-none bg-white">
                     <option value="'Noto Sans Lao', sans-serif">Noto Sans Lao</option>
                     <option value="'Phetsarath OT', sans-serif">Phetsarath OT</option>
                     <option value="'Saysettha OT', sans-serif">Saysettha OT</option>
@@ -126,28 +153,28 @@
 
             <div class="flex items-center gap-2 mb-1.5">
                 <label class="text-[11px] text-gray-600 w-12">ຂະໜາດ:</label>
-                <input type="range" id="fontSizeSlider" min="12" max="30" value="16" class="w-full h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                <input type="range" id="fontSizeSlider" min="10" max="40" value="16" class="w-full h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer">
                 <span id="fontSizeDisplay" class="text-[11px] font-bold w-6 text-right">16</span>
             </div>
 
             <div class="flex items-center gap-2 mb-1.5">
                 <label class="text-[11px] text-gray-600 w-12">ໄລຍະແຖວ:</label>
-                <input type="range" id="lineHeightSlider" min="1" max="3" step="0.1" value="1.2" class="w-full h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                <input type="range" id="lineHeightSlider" min="0.8" max="3" step="0.1" value="1.2" class="w-full h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer">
                 <span id="lineHeightDisplay" class="text-[11px] font-bold w-6 text-right">1.2</span>
             </div>
 
             <div class="flex items-center gap-2 mb-1">
-                <label class="text-[11px] text-gray-600 w-12">ໝູນ:</label>
+                <label class="text-[11px] text-gray-600 w-12">ໝູນຂໍ້ຄວາມ:</label>
                 <button onclick="adjustRotate(-1)" class="w-5 h-5 flex items-center justify-center bg-gray-200 hover:bg-gray-300 rounded text-gray-700 font-bold shadow-sm text-xs">-</button>
                 <input type="range" id="rotateSlider" min="-180" max="180" value="0" class="w-full h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer">
                 <button onclick="adjustRotate(1)" class="w-5 h-5 flex items-center justify-center bg-gray-200 hover:bg-gray-300 rounded text-gray-700 font-bold shadow-sm text-xs">+</button>
                 <span id="rotateDisplay" class="text-[11px] font-bold w-8 text-right">0°</span>
             </div>
 
-            <p class="text-[10px] text-gray-400 mt-1 leading-none">*ຄລິກ-ລາກເພື່ອຍ້າຍ, ລາກແຈຂວາລຸ່ມເພື່ອຢືດກ່ອງ</p>
+            <p class="text-[10px] text-orange-600 mt-2 leading-none font-semibold">* ຄລິກເລືອກກ່ອງຂໍ້ຄວາມໃນໜ້າເຈ້ຍ ເພື່ອປັບແຕ່ງແຍກກັນອິດສະຫຼະ</p>
         </div>
 
-        <!-- Expanded Section 3 -->
+        <!-- Section 3: List & Add -->
         <div class="p-3 flex-grow flex flex-col overflow-hidden bg-white">
             <div class="flex justify-between items-center mb-2">
                 <h2 class="font-semibold text-gray-700 text-[13px]">3. ເລືອກລາຍຊື່:</h2>
@@ -157,16 +184,18 @@
                 <!-- List will be populated by JS -->
             </div>
             
-            <!-- Compact Add New Participant -->
             <div class="mt-2 pt-2 border-t border-gray-100 shrink-0">
-                <div class="flex gap-1.5 items-center">
+                <div class="flex flex-col gap-1.5">
                     <input type="text" id="newName" placeholder="ເພີ່ມຊື່..." class="w-full text-[12px] p-1.5 border rounded focus:outline-none focus:border-blue-500">
-                    <button id="actionBtn" onclick="addParticipant()" class="shrink-0 bg-blue-100 hover:bg-blue-200 text-blue-700 text-[11px] font-bold px-3 py-1.5 rounded transition">
-                        ເພີ່ມ
-                    </button>
-                    <button id="cancelBtn" onclick="resetActionBtn()" class="hidden shrink-0 text-gray-500 hover:text-gray-700 text-[11px] underline px-1">
-                        ຍົກເລີກ
-                    </button>
+                    <input type="text" id="newDetail" placeholder="ຂໍ້ຄວາມແຖວທີ 2 (ຖ້າມີ)..." class="w-full text-[12px] p-1.5 border rounded focus:outline-none focus:border-blue-500">
+                    <div class="flex gap-1.5 items-center">
+                        <button id="actionBtn" onclick="addParticipant()" class="flex-1 bg-blue-100 hover:bg-blue-200 text-blue-700 text-[11px] font-bold px-3 py-1.5 rounded transition">
+                            ເພີ່ມ
+                        </button>
+                        <button id="cancelBtn" onclick="resetActionBtn()" class="hidden flex-1 text-gray-600 bg-gray-100 hover:bg-gray-200 text-[11px] font-bold px-3 py-1.5 rounded transition">
+                            ຍົກເລີກ
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -192,13 +221,19 @@
                 <p class="text-xl font-semibold">ກະລຸນາອັບໂຫຼດໄຟລ໌ PDF ຕົ້ນສະບັບຢູ່ເມນູດ້ານຊ້າຍ</p>
             </div>
 
-            <canvas id="pdf-canvas"></canvas>
+            <!-- The PDF Wrapper for Crop/Rotate transforms -->
+            <div id="pdf-wrapper">
+                <canvas id="pdf-canvas"></canvas>
+            </div>
             
-            <!-- Dynamic Text Overlay (Hidden until PDF is loaded) -->
-            <div id="draggable-wrapper" class="hidden" style="top: 400px; left: 150px;">
-                <div id="draggable-content" class="edit-mode" style="line-height: 1.2;">
-                    <div id="preview-name" class="font-bold text-black">ທ່ານ ກອງໄຊ ລໍວັນເຫືອງ</div>
-                </div>
+            <!-- Independent Text Box 1: NAME -->
+            <div id="box-name" class="draggable-item edit-mode active-box" style="top: 380px; left: 150px; font-size: 16px; font-family: 'Noto Sans Lao', sans-serif; line-height: 1.2; transform: rotate(0deg);" data-rotate="0">
+                <div id="preview-name" class="font-bold text-black w-full h-full">ທ່ານ ກອງໄຊ ລໍວັນເຫືອງ</div>
+            </div>
+
+            <!-- Independent Text Box 2: DETAIL -->
+            <div id="box-detail" class="draggable-item edit-mode" style="top: 420px; left: 150px; font-size: 14px; font-family: 'Noto Sans Lao', sans-serif; line-height: 1.2; transform: rotate(0deg);" data-rotate="0">
+                <div id="preview-detail" class="text-black w-full h-full">&nbsp;</div>
             </div>
         </div>
     </div>
@@ -209,7 +244,6 @@
             <h3 class="text-lg font-bold text-gray-800 mb-2 border-b pb-2">ແຈ້ງເຕືອນ</h3>
             <p id="modal-message" class="text-sm text-gray-600 mb-6 mt-3">...</p>
             <div class="flex justify-end gap-3" id="modal-buttons">
-                <!-- Buttons will be injected here -->
             </div>
         </div>
     </div>
@@ -218,19 +252,33 @@
         // Setup PDF.js worker
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
 
-        // Data provided by user - Cleared as requested
         const participants = [];
-
         let currentSelected = null;
         let pdfLoaded = false;
+        
+        // Active Box State
+        let activeBoxId = 'box-name';
 
         document.addEventListener('DOMContentLoaded', () => {
             renderList();
             setupDraggable();
             setupFontControls();
+            setupPdfControls();
             
-            // Set initial preview text since there are no participants
             document.getElementById('preview-name').innerText = 'ຍັງບໍ່ມີລາຍຊື່';
+            document.getElementById('preview-detail').innerHTML = '&nbsp;';
+            
+            // Initial Active Box sync
+            setActiveBox('box-name');
+
+            const handleEnter = function(e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault(); 
+                    document.getElementById('actionBtn').click();
+                }
+            };
+            document.getElementById('newName').addEventListener('keydown', handleEnter);
+            document.getElementById('newDetail').addEventListener('keydown', handleEnter);
         });
 
         // --- Custom Modal System ---
@@ -269,7 +317,7 @@
             modal.classList.remove('hidden');
         }
 
-        // 1. PDF Upload Logic
+        // --- PDF Upload & Controls ---
         const fileInput = document.getElementById('pdf-upload');
         fileInput.addEventListener('change', function(e) {
             const file = e.target.files[0];
@@ -279,32 +327,23 @@
             }
             
             showLoader("ກຳລັງໂຫຼດ PDF...");
-            
             const fileReader = new FileReader();
             fileReader.onload = function() {
                 const typedarray = new Uint8Array(this.result);
-                
                 pdfjsLib.getDocument(typedarray).promise.then(pdf => {
-                    // Load the first page
                     pdf.getPage(1).then(page => {
                         const canvas = document.getElementById('pdf-canvas');
                         const context = canvas.getContext('2d');
-                        
-                        // Set standard A4 scale
-                        const viewport = page.getViewport({ scale: 2 }); // Scale 2 for high quality
+                        const viewport = page.getViewport({ scale: 2 }); 
                         
                         canvas.width = viewport.width;
                         canvas.height = viewport.height;
                         
-                        const renderContext = {
-                            canvasContext: context,
-                            viewport: viewport
-                        };
-                        
-                        page.render(renderContext).promise.then(() => {
+                        page.render({canvasContext: context, viewport: viewport}).promise.then(() => {
                             document.getElementById('placeholder-text').style.display = 'none';
-                            document.getElementById('draggable-wrapper').classList.remove('hidden');
+                            document.getElementById('pdf-controls').classList.remove('hidden');
                             pdfLoaded = true;
+                            resetPdfTransform(); // Apply default transform
                             hideLoader();
                         });
                     });
@@ -316,98 +355,151 @@
             fileReader.readAsArrayBuffer(file);
         });
 
-        // 2. Render List & Selection
+        function setupPdfControls() {
+            const controls = ['pdfRotate'];
+            controls.forEach(id => {
+                document.getElementById(id).addEventListener('input', applyPdfTransform);
+            });
+        }
+
+        function applyPdfTransform() {
+            const rotate = document.getElementById('pdfRotate').value;
+            
+            const wrapper = document.getElementById('pdf-wrapper');
+            wrapper.style.transform = `rotate(${rotate}deg)`;
+        }
+
+        function resetPdfTransform() {
+            document.getElementById('pdfRotate').value = 0;
+            applyPdfTransform();
+        }
+
+        // --- Active Box State Management ---
+        function setActiveBox(id) {
+            document.querySelectorAll('.draggable-item').forEach(el => el.classList.remove('active-box'));
+            const el = document.getElementById(id);
+            if(el) {
+                el.classList.add('active-box');
+                activeBoxId = id;
+                
+                document.getElementById('activeBoxLabel').innerText = (id === 'box-name') ? 'ກຳລັງເລືອກ: ຊື່' : 'ກຳລັງເລືອກ: ແຖວ 2';
+
+                // Read current inline styles to sync with UI sliders
+                const fontSize = parseInt(el.style.fontSize) || 16;
+                document.getElementById('fontSizeSlider').value = fontSize;
+                document.getElementById('fontSizeDisplay').innerText = fontSize;
+
+                const rot = el.dataset.rotate || 0;
+                document.getElementById('rotateSlider').value = rot;
+                document.getElementById('rotateDisplay').innerText = rot + '°';
+
+                const lh = el.style.lineHeight || 1.2;
+                document.getElementById('lineHeightSlider').value = lh;
+                document.getElementById('lineHeightDisplay').innerText = lh;
+
+                const ff = el.style.fontFamily;
+                if(ff.includes('Serif')) document.getElementById('fontSelector').value = "'Noto Serif Lao', serif";
+                else if(ff.includes('Phetsarath')) document.getElementById('fontSelector').value = "'Phetsarath OT', sans-serif";
+                else if(ff.includes('Saysettha')) document.getElementById('fontSelector').value = "'Saysettha OT', sans-serif";
+                else document.getElementById('fontSelector').value = "'Noto Sans Lao', sans-serif";
+            }
+        }
+
+        // --- List & Data Management ---
         function renderList() {
             const listContainer = document.getElementById('participant-list');
             listContainer.innerHTML = '';
 
             if (participants.length === 0) {
-                 listContainer.innerHTML = '<p class="text-[11px] text-gray-400 italic text-center mt-4">ຍັງບໍ່ມີລາຍຊື່ຜູ້ເຂົ້າຮ່ວມ. ກະລຸນາເພີ່ມລາຍຊື່ຢູ່ຊ່ອງດ້ານລຸ່ມ.</p>';
+                 listContainer.innerHTML = '<p class="text-[11px] text-gray-400 italic text-center mt-4">ຍັງບໍ່ມີລາຍຊື່. ກະລຸນາເພີ່ມຢູ່ລຸ່ມ.</p>';
                  return;
             }
 
             participants.forEach(p => {
-                const btn = document.createElement('div'); // ປ່ຽນຈາກ button ເປັນ div
+                const btn = document.createElement('div');
                 const isSelected = currentSelected && currentSelected.id === p.id;
-                // Made the list items slightly more compact (p-2 instead of p-3)
                 btn.className = `w-full text-left p-2 rounded border mb-1 cursor-pointer transition ${isSelected ? 'bg-blue-100 border-blue-400 shadow-sm' : 'bg-white border-gray-200 hover:bg-gray-50'}`;
                 btn.onclick = () => {
                     currentSelected = p;
                     document.getElementById('preview-name').innerText = p.name;
+                    document.getElementById('preview-detail').innerHTML = p.detail ? p.detail : '&nbsp;';
                     renderList();
                 };
                 btn.innerHTML = `
                     <div class="font-semibold text-gray-800 text-[13px] flex justify-between items-center">
                         <span class="truncate pr-2">${p.name}</span>
                         <div class="shrink-0 flex gap-1 z-10 relative">
-                            <button onclick="editParticipant(${p.id}, event)" class="bg-yellow-100 text-yellow-700 hover:bg-yellow-200 hover:text-yellow-800 text-[10px] px-2 py-0.5 rounded transition" title="ແກ້ໄຂຊື່">ແກ້ໄຂ</button>
-                            <button onclick="removeParticipant(${p.id}, event)" class="bg-red-100 text-red-600 hover:bg-red-200 hover:text-red-800 text-[10px] px-2 py-0.5 rounded transition" title="ລຶບລາຍຊື່">ລຶບ</button>
+                            <button onclick="editParticipant(${p.id}, event)" class="bg-yellow-100 text-yellow-700 hover:bg-yellow-200 hover:text-yellow-800 text-[10px] px-2 py-0.5 rounded transition">ແກ້ໄຂ</button>
+                            <button onclick="removeParticipant(${p.id}, event)" class="bg-red-100 text-red-600 hover:bg-red-200 hover:text-red-800 text-[10px] px-2 py-0.5 rounded transition">ລຶບ</button>
                         </div>
                     </div>
+                    ${p.detail ? `<div class="text-[11px] text-gray-500 truncate mt-0.5">${p.detail}</div>` : ''}
                 `;
                 listContainer.appendChild(btn);
             });
         }
 
-        // Add Participant Logic
         function addParticipant() {
             const nameInput = document.getElementById('newName');
+            const detailInput = document.getElementById('newDetail');
             const name = nameInput.value.trim();
+            const detail = detailInput.value.trim();
             
-            if(!name) return; // ປ້ອງກັນການເພີ່ມຊື່ວ່າງເປົ່າ
+            if(!name) return;
             
             const newId = participants.length > 0 ? Math.max(...participants.map(p=>p.id)) + 1 : 1;
-            const newParticipant = { id: newId, name: name };
+            const newParticipant = { id: newId, name: name, detail: detail };
             participants.push(newParticipant);
             
             nameInput.value = '';
+            detailInput.value = '';
             
-            // If it's the first participant, auto select it
             if (participants.length === 1) {
                 currentSelected = newParticipant;
                 document.getElementById('preview-name').innerText = newParticipant.name;
+                document.getElementById('preview-detail').innerHTML = newParticipant.detail || '&nbsp;';
             }
             
             renderList();
-            
-            // Auto scroll to the bottom if list is long
             const listContainer = document.getElementById('participant-list');
             listContainer.scrollTop = listContainer.scrollHeight;
         }
 
-        // Edit Participant Logic
         function editParticipant(id, event) {
-            event.stopPropagation(); // ປ້ອງກັນບໍ່ໃຫ້ໄປກະທົບການເລືອກແຖວ
+            event.stopPropagation();
             const participant = participants.find(p => p.id === id);
             if (!participant) return;
             
             const nameInput = document.getElementById('newName');
+            const detailInput = document.getElementById('newDetail');
             nameInput.value = participant.name;
+            detailInput.value = participant.detail || '';
             nameInput.focus();
             
-            // ປ່ຽນປຸ່ມ ເພີ່ມ ເປັນ ບັນທຶກ
             const actionBtn = document.getElementById('actionBtn');
             actionBtn.innerText = 'ບັນທຶກ';
             actionBtn.classList.remove('bg-blue-100', 'hover:bg-blue-200', 'text-blue-700');
             actionBtn.classList.add('bg-yellow-100', 'hover:bg-yellow-200', 'text-yellow-700');
             actionBtn.onclick = function() { saveEdit(id); };
 
-            // ສະແດງປຸ່ມຍົກເລີກ
             document.getElementById('cancelBtn').classList.remove('hidden');
         }
 
         function saveEdit(id) {
             const nameInput = document.getElementById('newName');
+            const detailInput = document.getElementById('newDetail');
             const name = nameInput.value.trim();
+            const detail = detailInput.value.trim();
             
             if (!name) return;
             
             const participant = participants.find(p => p.id === id);
             if (participant) {
                 participant.name = name;
-                // ອັບເດດໜ້າພຣີວິວ ຖ້າຫາກກຳລັງເບິ່ງຊື່ນີ້ຢູ່
+                participant.detail = detail;
                 if (currentSelected && currentSelected.id === id) {
                     document.getElementById('preview-name').innerText = name;
+                    document.getElementById('preview-detail').innerHTML = detail || '&nbsp;';
                 }
             }
             
@@ -416,34 +508,31 @@
         }
 
         function resetActionBtn() {
-            const nameInput = document.getElementById('newName');
-            nameInput.value = '';
+            document.getElementById('newName').value = '';
+            document.getElementById('newDetail').value = '';
             
-            // ປ່ຽນປຸ່ມ ບັນທຶກ ກັບຄືນເປັນ ເພີ່ມ
             const actionBtn = document.getElementById('actionBtn');
             actionBtn.innerText = 'ເພີ່ມ';
             actionBtn.classList.remove('bg-yellow-100', 'hover:bg-yellow-200', 'text-yellow-700');
             actionBtn.classList.add('bg-blue-100', 'hover:bg-blue-200', 'text-blue-700');
             actionBtn.onclick = addParticipant;
 
-            // ເຊື່ອງປຸ່ມຍົກເລີກ
             document.getElementById('cancelBtn').classList.add('hidden');
         }
 
-        // Clear All Participants Logic
         function clearAllParticipants() {
             if (participants.length === 0) return;
             showModal('ຕ້ອງການລຶບລາຍຊື່ທັງໝົດແທ້ບໍ່?', 'confirm', () => {
-                participants.length = 0; // Empty the array
+                participants.length = 0;
                 currentSelected = null;
                 document.getElementById('preview-name').innerText = 'ຍັງບໍ່ມີລາຍຊື່';
+                document.getElementById('preview-detail').innerHTML = '&nbsp;';
                 renderList();
             });
         }
 
-        // Remove Participant Logic
         function removeParticipant(id, event) {
-            event.stopPropagation(); // Prevent row click
+            event.stopPropagation();
             const index = participants.findIndex(p => p.id === id);
             if(index > -1) {
                 showModal('ຕ້ອງການລຶບລາຍຊື່ນີ້ແທ້ບໍ່?', 'confirm', () => {
@@ -452,8 +541,10 @@
                         currentSelected = participants[0] || null;
                         if(currentSelected) {
                             document.getElementById('preview-name').innerText = currentSelected.name;
+                            document.getElementById('preview-detail').innerHTML = currentSelected.detail || '&nbsp;';
                         } else {
                             document.getElementById('preview-name').innerText = 'ຍັງບໍ່ມີລາຍຊື່';
+                            document.getElementById('preview-detail').innerHTML = '&nbsp;';
                         }
                     }
                     renderList();
@@ -461,111 +552,132 @@
             }
         }
 
-        // 3. Draggable Logic
+        // --- Draggable Logic ---
         function setupDraggable() {
-            const dragItem = document.getElementById("draggable-wrapper");
-            const container = document.getElementById("letter-template");
-            let active = false;
-            let currentX, currentY, initialX, initialY;
-            let xOffset = 150, yOffset = 400; // Default starting position
+            const workspace = document.getElementById("letter-template");
+            const items = document.querySelectorAll('.draggable-item');
+            
+            let isDragging = false;
+            let currentDragItem = null;
+            let dragOffsets = {};
 
-            function dragStart(e) {
+            items.forEach(item => {
+                dragOffsets[item.id] = {
+                    xOffset: parseInt(item.style.left) || 150,
+                    yOffset: parseInt(item.style.top) || 400,
+                    initialX: 0,
+                    initialY: 0
+                };
+
+                item.addEventListener('mousedown', (e) => startDrag(e, item));
+                item.addEventListener('touchstart', (e) => startDrag(e, item), {passive: false});
+            });
+
+            function startDrag(e, item) {
+                // Ignore if clicking on bottom-right corner (css resize handle area)
+                const rect = item.getBoundingClientRect();
+                const isResizeHandle = (e.clientX > rect.right - 20 && e.clientY > rect.bottom - 20);
+                if (isResizeHandle) {
+                    setActiveBox(item.id);
+                    return; 
+                }
+
+                setActiveBox(item.id);
+                isDragging = true;
+                currentDragItem = item;
+                const offset = dragOffsets[item.id];
+
                 if (e.type === "touchstart") {
-                    initialX = e.touches[0].clientX - xOffset;
-                    initialY = e.touches[0].clientY - yOffset;
+                    offset.initialX = e.touches[0].clientX - offset.xOffset;
+                    offset.initialY = e.touches[0].clientY - offset.yOffset;
                 } else {
-                    initialX = e.clientX - xOffset;
-                    initialY = e.clientY - yOffset;
+                    offset.initialX = e.clientX - offset.xOffset;
+                    offset.initialY = e.clientY - offset.yOffset;
                 }
-                if (e.target === dragItem || dragItem.contains(e.target)) {
-                    active = true;
-                }
-            }
-
-            function dragEnd() {
-                initialX = currentX;
-                initialY = currentY;
-                active = false;
             }
 
             function drag(e) {
-                if (active) {
+                if (isDragging && currentDragItem) {
                     e.preventDefault();
+                    const offset = dragOffsets[currentDragItem.id];
+                    let currentX, currentY;
+
                     if (e.type === "touchmove") {
-                        currentX = e.touches[0].clientX - initialX;
-                        currentY = e.touches[0].clientY - initialY;
+                        currentX = e.touches[0].clientX - offset.initialX;
+                        currentY = e.touches[0].clientY - offset.initialY;
                     } else {
-                        currentX = e.clientX - initialX;
-                        currentY = e.clientY - initialY;
+                        currentX = e.clientX - offset.initialX;
+                        currentY = e.clientY - offset.initialY;
                     }
 
-                    // Constrain to container
-                    xOffset = currentX;
-                    yOffset = currentY;
-                    
-                    setTranslate(currentX, currentY, dragItem);
+                    offset.xOffset = currentX;
+                    offset.yOffset = currentY;
+                    currentDragItem.style.left = currentX + "px";
+                    currentDragItem.style.top = currentY + "px";
                 }
             }
 
-            function setTranslate(xPos, yPos, el) {
-                el.style.left = xPos + "px";
-                el.style.top = yPos + "px";
+            function stopDrag() {
+                isDragging = false;
+                currentDragItem = null;
             }
 
-            container.addEventListener("touchstart", dragStart, false);
-            container.addEventListener("touchend", dragEnd, false);
-            container.addEventListener("touchmove", drag, false);
-
-            container.addEventListener("mousedown", dragStart, false);
-            container.addEventListener("mouseup", dragEnd, false);
-            container.addEventListener("mousemove", drag, false);
+            workspace.addEventListener('mousemove', drag);
+            workspace.addEventListener('touchmove', drag, {passive: false});
+            window.addEventListener('mouseup', stopDrag);
+            window.addEventListener('touchend', stopDrag);
         }
 
-        // 4. Font Size & Styling Controls
+        // --- Font Size & Styling Controls ---
         function setupFontControls() {
             const sizeSlider = document.getElementById('fontSizeSlider');
-            const sizeDisplay = document.getElementById('fontSizeDisplay');
             const rotateSlider = document.getElementById('rotateSlider');
-            const rotateDisplay = document.getElementById('rotateDisplay');
             const fontSelector = document.getElementById('fontSelector');
             const lineHeightSlider = document.getElementById('lineHeightSlider');
-            const lineHeightDisplay = document.getElementById('lineHeightDisplay');
-            const dragContent = document.getElementById('draggable-content');
             
             sizeSlider.addEventListener('input', (e) => {
+                if(!activeBoxId) return;
                 const size = e.target.value;
-                sizeDisplay.innerText = size;
-                dragContent.style.fontSize = size + 'px';
+                document.getElementById('fontSizeDisplay').innerText = size;
+                document.getElementById(activeBoxId).style.fontSize = size + 'px';
             });
 
             rotateSlider.addEventListener('input', (e) => {
+                if(!activeBoxId) return;
                 const deg = e.target.value;
-                rotateDisplay.innerText = deg + '°';
-                dragContent.style.transform = `rotate(${deg}deg)`;
+                document.getElementById('rotateDisplay').innerText = deg + '°';
+                const el = document.getElementById(activeBoxId);
+                el.style.transform = `rotate(${deg}deg)`;
+                el.dataset.rotate = deg;
             });
 
             window.adjustRotate = function(val) {
+                if(!activeBoxId) return;
                 let currentVal = parseInt(rotateSlider.value);
                 let newVal = currentVal + val;
                 if(newVal < -180) newVal = -180;
                 if(newVal > 180) newVal = 180;
                 rotateSlider.value = newVal;
-                rotateDisplay.innerText = newVal + '°';
-                dragContent.style.transform = `rotate(${newVal}deg)`;
+                document.getElementById('rotateDisplay').innerText = newVal + '°';
+                const el = document.getElementById(activeBoxId);
+                el.style.transform = `rotate(${newVal}deg)`;
+                el.dataset.rotate = newVal;
             };
 
             fontSelector.addEventListener('change', (e) => {
-                dragContent.style.fontFamily = e.target.value;
+                if(!activeBoxId) return;
+                document.getElementById(activeBoxId).style.fontFamily = e.target.value;
             });
 
             lineHeightSlider.addEventListener('input', (e) => {
+                if(!activeBoxId) return;
                 const val = e.target.value;
-                lineHeightDisplay.innerText = val;
-                dragContent.style.lineHeight = val;
+                document.getElementById('lineHeightDisplay').innerText = val;
+                document.getElementById(activeBoxId).style.lineHeight = val;
             });
         }
 
-        // Helpers
+        // --- Export Logic ---
         function showLoader(text) {
             document.getElementById('loading-text').innerText = text;
             document.getElementById('loading-overlay').classList.remove('hidden');
@@ -573,25 +685,34 @@
         function hideLoader() { document.getElementById('loading-overlay').classList.add('hidden'); }
         
         function prepareForPrint() {
-            const box = document.getElementById('draggable-content');
-            box.classList.remove('edit-mode');
-            box.classList.add('print-mode');
+            document.querySelectorAll('.draggable-item').forEach(el => {
+                el.classList.remove('edit-mode', 'active-box');
+                el.classList.add('print-mode');
+            });
+            // ປ່ຽນ &nbsp; ໃຫ້ເປັນຫວ່າງເປົ່າກ່ອນພິມເພື່ອຄວາມສະອາດ
+            if(document.getElementById('preview-detail').innerHTML === '&nbsp;') {
+                document.getElementById('preview-detail').innerHTML = '';
+            }
         }
         
         function restoreAfterPrint() {
-            const box = document.getElementById('draggable-content');
-            box.classList.add('edit-mode');
-            box.classList.remove('print-mode');
+            document.querySelectorAll('.draggable-item').forEach(el => {
+                el.classList.add('edit-mode');
+                el.classList.remove('print-mode');
+            });
+            if(activeBoxId) document.getElementById(activeBoxId).classList.add('active-box');
+            // ເອົາ &nbsp; ກັບຄືນມາເພື່ອໃຫ້ກ່ອງຍັງຄລິກໄດ້ງ່າຍ
+            if(document.getElementById('preview-detail').innerHTML === '') {
+                document.getElementById('preview-detail').innerHTML = '&nbsp;';
+            }
         }
 
-        // 5. Export Logic (jsPDF + html2canvas)
         async function exportCurrentPDF() {
             if(!pdfLoaded) { showModal("ກະລຸນາອັບໂຫຼດໄຟລ໌ PDF ຕົ້ນສະບັບກ່ອນ"); return; }
             if(!currentSelected) { showModal("ບໍ່ມີລາຍຊື່ໃຫ້ Export"); return; }
             showLoader(`ກຳລັງສ້າງ PDF:\n${currentSelected.name}`);
             prepareForPrint();
             
-            // Allow DOM to update style
             await new Promise(r => setTimeout(r, 100));
 
             const container = document.getElementById('letter-template');
@@ -621,10 +742,9 @@
 
             for (let i = 0; i < participants.length; i++) {
                 const p = participants[i];
-                // Update text
                 document.getElementById('preview-name').innerText = p.name;
+                document.getElementById('preview-detail').innerHTML = p.detail || '';
 
-                // Wait for DOM to render the new text
                 await new Promise(r => setTimeout(r, 150));
 
                 const canvas = await html2canvas(container, { scale: 2, useCORS: true });
@@ -634,8 +754,8 @@
                 doc.addImage(imgData, 'JPEG', 0, 0, 794, 1123);
             }
 
-            // Restore state to current selection
             document.getElementById('preview-name').innerText = currentSelected.name;
+            document.getElementById('preview-detail').innerHTML = currentSelected.detail || '';
             
             restoreAfterPrint();
             
